@@ -3,15 +3,22 @@ import os
 import threading
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 import customtkinter as ctk
+from PIL import Image
+
 from core.aes_utils import encrypt_file, decrypt_file
-from core.password_utils import is_strong_password
+from core.file_utils import *
+from gui.password_dialog import create_password_box, validate_password
 from gui.theme import *
 
 class SecureAESApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        try:
+            self.iconbitmap("assets/secureaes.ico")
+        except Exception as e:
+            print("Icon load failed:", e)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
         self.title("SecureAES — Cyber Neon GUI")
@@ -28,25 +35,30 @@ class SecureAESApp(ctk.CTk):
         # Build UI
         self._build_ui()
 
-    # ---------------------- UI ----------------------
     def _build_ui(self):
-        title = ctk.CTkLabel(self, text="SecureAES", font=("Segoe UI", 36, "bold"), text_color=NEON_BLUE)
-        title.pack(pady=(20,5))
-        subtitle = ctk.CTkLabel(self, text="AES-256 Encryption/Decryption — Keep Your Files Safe", font=("Segoe UI",14))
-        subtitle.pack(pady=(0,20))
+        # Logo
+        try:
+            logo_img = ctk.CTkImage(light_image=Image.open("assets/logo.png"), size=(90, 90))
+            ctk.CTkLabel(self, image=logo_img, text="").pack(pady=(15,5))
+        except Exception as e:
+            print("Header logo load failed:", e)
 
+        # Title
+        ctk.CTkLabel(self, text="SecureAES", font=("Segoe UI",36,"bold"), text_color=NEON_BLUE).pack(pady=(5,5))
+        ctk.CTkLabel(self, text="AES-256 Encryption/Decryption — Keep Your Files Safe", font=("Segoe UI",14)).pack(pady=(0,20))
+
+        # Tabs
         self.tabs = ctk.CTkTabview(self, width=1050, height=580)
         self.tabs.pack(padx=20, pady=10)
         self.tabs.add("Encrypt")
         self.tabs.add("Decrypt")
-
-        self._build_tab(self.tabs.tab("Encrypt"), mode="encrypt")
-        self._build_tab(self.tabs.tab("Decrypt"), mode="decrypt")
+        self._build_tab(self.tabs.tab("Encrypt"), "encrypt")
+        self._build_tab(self.tabs.tab("Decrypt"), "decrypt")
 
     def _build_tab(self, parent, mode="encrypt"):
         files = self.enc_files if mode=="encrypt" else self.dec_files
 
-        # --- left frame ---
+        # Left frame (file list)
         left_frame = ctk.CTkFrame(parent)
         left_frame.grid(row=0, column=0, padx=20, pady=10, sticky="nsew")
         parent.grid_rowconfigure(0, weight=1)
@@ -54,13 +66,9 @@ class SecureAESApp(ctk.CTk):
         left_frame.grid_rowconfigure(1, weight=1)
         left_frame.grid_columnconfigure(0, weight=1)
 
-        lbl_files = ctk.CTkLabel(left_frame, text="Selected Files", font=("Segoe UI",14,"bold"), text_color=NEON_BLUE)
-        lbl_files.grid(row=0, column=0, pady=(10,5), sticky="w")
-
-        listbox = tk.Listbox(left_frame, selectmode="extended", bg="#0b1114", fg="white",
-                             selectbackground="#24303a", selectforeground="white", font=("Segoe UI",10))
+        ctk.CTkLabel(left_frame, text="Selected Files", font=("Segoe UI",14,"bold"), text_color=NEON_BLUE).grid(row=0, column=0, pady=(10,5), sticky="w")
+        listbox = tk.Listbox(left_frame, selectmode="extended", bg="#0b1114", fg="white", selectbackground="#24303a", selectforeground="white", font=("Segoe UI",10))
         listbox.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-
         scrollbar = tk.Scrollbar(left_frame, orient="vertical", command=listbox.yview)
         scrollbar.grid(row=1, column=1, sticky="ns", pady=5)
         listbox.config(yscrollcommand=scrollbar.set)
@@ -69,31 +77,24 @@ class SecureAESApp(ctk.CTk):
         btn_frame = ctk.CTkFrame(left_frame)
         btn_frame.grid(row=2, column=0, columnspan=2, pady=5, padx=5, sticky="ew")
         btn_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkButton(btn_frame, text="Add Files",command=lambda: (add_files(files, self), update_listbox(files, listbox))).grid(row=0, column=0, sticky="ew", pady=2)
+        ctk.CTkButton(btn_frame, text="Remove Selected", command=lambda: (remove_selected(files, listbox), update_listbox(files, listbox))).grid(row=1, column=0, sticky="ew", pady=2)
+        ctk.CTkButton(btn_frame, text="Clear All", command=lambda: (clear_all(files), update_listbox(files, listbox))).grid(row=2, column=0, sticky="ew", pady=2)
 
-        ctk.CTkButton(btn_frame, text="Add Files", command=lambda: self._add_files(files, listbox)).grid(row=0, column=0, sticky="ew", pady=2)
-        ctk.CTkButton(btn_frame, text="Remove Selected", command=lambda: self._remove_selected(files, listbox)).grid(row=1, column=0, sticky="ew", pady=2)
-        ctk.CTkButton(btn_frame, text="Clear All", command=lambda: self._clear_all(files, listbox)).grid(row=2, column=0, sticky="ew", pady=2)
-
-        # Right frame
+        # Right frame (options)
         right_frame = ctk.CTkFrame(parent, width=520, height=550)
         right_frame.grid(row=0, column=1, padx=20, pady=10, sticky="nsew")
         right_frame.grid_propagate(False)
-
         ctk.CTkLabel(right_frame, text=f"{mode.capitalize()} Options", font=("Segoe UI",18,"bold"), text_color=NEON_BLUE).pack(pady=(10,5))
 
-        pwd_var = tk.StringVar()
-        pwd_entry = ctk.CTkEntry(right_frame, placeholder_text="Enter Password", show="*", textvariable=pwd_var)
-        pwd_entry.pack(pady=5, padx=20, fill="x")
+        # Password box (from password_dialog.py)
+        pwd_var, pwd_entry = create_password_box(right_frame)
 
-        show_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(right_frame, text="Show Password", variable=show_var,
-                        command=lambda: pwd_entry.configure(show="" if show_var.get() else "*")).pack(padx=20, anchor="w")
-
-        del_var = tk.BooleanVar(value=False)
+        del_var = ctk.BooleanVar(value=False)
         del_text = "Delete original files after encryption" if mode=="encrypt" else "Delete encrypted files after decryption"
         ctk.CTkCheckBox(right_frame, text=del_text, variable=del_var).pack(padx=20, anchor="w", pady=5)
 
-        # **Start button comes BEFORE progressbar and log**
+        # Start button (ENCRYPT / DECRYPT)
         start_btn = ctk.CTkButton(
             right_frame, text=mode.capitalize(),
             fg_color=BTN_GREEN if mode=="encrypt" else BTN_RED,
@@ -101,6 +102,7 @@ class SecureAESApp(ctk.CTk):
         )
         start_btn.pack(padx=20, pady=10, fill="x")
 
+        # Progress bar and log
         progressbar = ctk.CTkProgressBar(right_frame, width=480)
         progressbar.pack(padx=20, pady=5, fill="x")
 
@@ -109,48 +111,23 @@ class SecureAESApp(ctk.CTk):
         log_widget.configure(state="disabled")
 
 
-    # ---- file ops ----
-    def _add_files(self, files, listbox):
-        paths = filedialog.askopenfilenames(title="Select Files")
-        if not paths: return
-        for p in paths:
-            if p not in files: files.append(str(Path(p).resolve()))
-        self._update_listbox(files, listbox)
-
-    def _remove_selected(self, files, listbox):
-        sel = list(listbox.curselection())
-        if not sel: return
-        for i in reversed(sel):
-            files.pop(i)
-        self._update_listbox(files, listbox)
-
-    def _clear_all(self, files, listbox):
-        files.clear()
-        self._update_listbox(files, listbox)
-
-    def _update_listbox(self, files, listbox):
-        listbox.delete(0, "end")
-        for f in files:
-            listbox.insert("end", f)
-
     # ---- worker ----
     def _start_process(self, mode, files, pwd_var, del_var, progressbar, log_widget):
-        pwd = pwd_var.get()
         if not files:
             messagebox.showwarning("No files", "Please add files to process.")
             return
-        if mode=="encrypt":
-            ok_flag, reason = is_strong_password(pwd)
-            if not ok_flag:
-                messagebox.showerror("Weak password", f"Cannot use weak password:\n{reason}")
-                return
+        ok, reason = validate_password(pwd_var, require_strong=(mode=="encrypt"))
+        if not ok:
+            messagebox.showerror("Weak password", reason)
+            return
+
         self._stop_flag = False
         self._worker_thread = threading.Thread(
-            target=self._worker_run, args=(mode, files.copy(), pwd, del_var, progressbar, log_widget), daemon=True
+            target=self._worker_run, args=(mode, files.copy(), pwd_var.get(), del_var, progressbar, log_widget, pwd_var), daemon=True
         )
         self._worker_thread.start()
 
-    def _worker_run(self, mode, files, password, del_var, progressbar, log_widget):
+    def _worker_run(self, mode, files, password, del_var, progressbar, log_widget, pwd_var):
         success_list, failed_list = [], []
         total = len(files)
         for idx, fpath in enumerate(files, start=1):
@@ -171,7 +148,10 @@ class SecureAESApp(ctk.CTk):
                 self._log(log_widget, f"[{idx}/{total}] Failed: {fname} ({e})")
             progressbar.set(idx/total)
 
-        # show summary popup
+        # Clear password box
+        pwd_var.set("")
+
+        # Summary popup
         msg = [f"Total files: {total}", f"Success: {len(success_list)}", f"Failed: {len(failed_list)}"]
         if success_list:
             msg.append("\nSuccessful outputs:")
