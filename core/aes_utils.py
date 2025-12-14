@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from argon2 import low_level
+from cryptography.exceptions import InvalidTag
 
 
 MAGIC = b"SAES"
@@ -54,24 +55,27 @@ def encrypt_file(in_path: str, out_path: str, password: str, use_argon2: bool = 
         f.write(ct)
 
 def decrypt_file(in_path: str, out_path: str, password: str):
-    with open(in_path, "rb") as f:
-        magic = f.read(4)
-        if magic != MAGIC:
-            raise ValueError("Invalid encrypted file (magic mismatch).")
-        version = f.read(1)[0]
-        kdf_id = f.read(1)[0]
-        salt_len = f.read(1)[0]
-        salt = f.read(salt_len)
-        nonce = f.read(12)
-        ciphertext = f.read()
-    password_b = password.encode("utf-8")
-    if kdf_id == KDF_ARGON2:
-        key = derive_key_argon2(password_b, salt)
-    elif kdf_id == KDF_PBKDF2:
-        key = derive_key_pbkdf2(password_b, salt)
-    else:
-        raise ValueError("Unknown KDF in file.")
-    aesgcm = AESGCM(key)
-    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-    with open(out_path, "wb") as f:
-        f.write(plaintext)
+    try:
+        with open(in_path, "rb") as f:
+            magic = f.read(4)
+            if magic != MAGIC:
+                raise ValueError("Invalid encrypted file (magic mismatch).")
+            version = f.read(1)[0]
+            kdf_id = f.read(1)[0]
+            salt_len = f.read(1)[0]
+            salt = f.read(salt_len)
+            nonce = f.read(12)
+            ciphertext = f.read()
+        password_b = password.encode("utf-8")
+        if kdf_id == KDF_ARGON2:
+            key = derive_key_argon2(password_b, salt)
+        elif kdf_id == KDF_PBKDF2:
+            key = derive_key_pbkdf2(password_b, salt)
+        else:
+            raise ValueError("Unknown KDF in file.")
+        aesgcm = AESGCM(key)
+        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+        with open(out_path, "wb") as f:
+            f.write(plaintext)
+    except InvalidTag:
+        raise ValueError("Incorrect password or corrupted file")

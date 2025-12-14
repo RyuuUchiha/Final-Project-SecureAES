@@ -3,13 +3,13 @@ import os
 import threading
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import customtkinter as ctk
 from PIL import Image
 
 from core.aes_utils import encrypt_file, decrypt_file
 from core.file_utils import *
-from gui.password_dialog import create_password_box, validate_password
+from gui.password_dialog import *
 from gui.theme import *
 
 class SecureAESApp(ctk.CTk):
@@ -130,17 +130,32 @@ class SecureAESApp(ctk.CTk):
     def _worker_run(self, mode, files, password, del_var, progressbar, log_widget, pwd_var):
         success_list, failed_list = [], []
         total = len(files)
+        output_folder = filedialog.askdirectory(title="Select output folder")
+        if not output_folder:
+            self._log(log_widget, "Operation cancelled: No output folder selected.")
+            return
         for idx, fpath in enumerate(files, start=1):
             fname = Path(fpath).name
             try:
-                if mode=="encrypt":
-                    out = fpath+".enc"
+                # -------- ENCRYPT --------
+                if mode == "encrypt":
+                    out = os.path.join(output_folder, fname + ".enc")
                     encrypt_file(fpath, out, password)
-                    if del_var.get(): os.remove(fpath)
+
+                    # ✅ DELETE ORIGINAL AFTER ENCRYPT
+                    if del_var.get() and os.path.exists(fpath):
+                        os.remove(fpath)
+
+                # -------- DECRYPT --------
                 else:
-                    out = fpath[:-4] if fpath.endswith(".enc") else fpath+".dec"
+                    base = fname[:-4] if fname.endswith(".enc") else fname
+                    out = os.path.join(output_folder, base)
                     decrypt_file(fpath, out, password)
-                    if del_var.get() and fpath.endswith(".enc"): os.remove(fpath)
+
+                    # ✅ DELETE .ENC AFTER DECRYPT
+                    if del_var.get() and fpath.endswith(".enc") and os.path.exists(fpath):
+                        os.remove(fpath)
+
                 success_list.append((fname, out))
                 self._log(log_widget, f"[{idx}/{total}] Success: {fname}")
             except Exception as e:
@@ -171,3 +186,5 @@ class SecureAESApp(ctk.CTk):
         log_widget.insert("end", text+"\n")
         log_widget.see("end")
         log_widget.configure(state="disabled")
+    
+

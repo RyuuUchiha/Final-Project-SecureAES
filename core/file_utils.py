@@ -28,3 +28,9 @@ def update_listbox(file_list, listbox):
     listbox.delete(0, "end")
     for f in file_list:
         listbox.insert("end", f)
+
+def select_output_folder():
+    folder = filedialog.askdirectory(title="Select output folder for output files")
+    if folder:
+        return folder
+    return None
