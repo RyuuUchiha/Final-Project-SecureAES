@@ -26,21 +26,28 @@ Python 3.11 or later
 Windows / Linux / macOS
 
 2️⃣ Clone the Repository
-git clone https://github.com/your-username/SecureAES.git
+git clone https://github.com/RyuuUchiha/Monyneath-Project-SecureAES.git
+
 cd SecureAES
 
 3️⃣ Create Virtual Environment (Recommended)
+
 python -m venv venv
+
 venv\Scripts\activate      # Windows
+
 source venv/bin/activate   # Linux / macOS
 
 4️⃣ Install Dependencies
+
 pip install -r requirements.txt
 
 5️⃣ Run the Application
+
 python main.py
 
 ▶️ Usage Guide
+
 🔐 Encrypt Files
 
 - Open SecureAES
