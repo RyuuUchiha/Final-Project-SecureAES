@@ -1,4 +1,4 @@
-🔐 SecureAES – File Encryption & Decryption Tool
+# SecureAES – File Encryption & Decryption Tool
 
 📌 Project Title
 
@@ -19,6 +19,7 @@ Securely delete original or encrypted files
 Monitor progress and logs during batch operations
 
 ⚙️ Installation / Setup Instructions
+
 1️⃣ Prerequisites
 
 Python 3.11 or later
@@ -26,6 +27,7 @@ Python 3.11 or later
 Windows / Linux / macOS
 
 2️⃣ Clone the Repository
+
 git clone https://github.com/RyuuUchiha/Monyneath-Project-SecureAES.git
 
 cd SecureAES
