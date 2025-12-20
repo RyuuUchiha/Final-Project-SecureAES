@@ -1,7 +1,4 @@
 # core/aes_utils.py
-"""
-AES-GCM file encrypt/decrypt utilities.
-"""
 
 import os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM

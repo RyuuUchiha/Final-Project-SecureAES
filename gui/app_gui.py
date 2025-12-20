@@ -91,7 +91,7 @@ class SecureAESApp(ctk.CTk):
         pwd_var, pwd_entry = create_password_box(right_frame)
 
         del_var = ctk.BooleanVar(value=False)
-        del_text = "Delete original files after encryption" if mode=="encrypt" else "Delete encrypted files after decryption"
+        del_text = "Delete original files" if mode=="encrypt" else "Delete encrypted files after decryption"
         ctk.CTkCheckBox(right_frame, text=del_text, variable=del_var).pack(padx=20, anchor="w", pady=5)
 
         # Start button (ENCRYPT / DECRYPT)
@@ -120,54 +120,116 @@ class SecureAESApp(ctk.CTk):
         if not ok:
             messagebox.showerror("Weak password", reason)
             return
-
+        
+        output_folder = filedialog.askdirectory(title="Select output folder")
+        if not output_folder:
+            self._ui(lambda: self._log(log_widget, "Operation cancelled: No output folder selected."))
+            return
+        
         self._stop_flag = False
         self._worker_thread = threading.Thread(
-            target=self._worker_run, args=(mode, files.copy(), pwd_var.get(), del_var, progressbar, log_widget, pwd_var), daemon=True
+            target=self._worker_run, args=(mode, files.copy(), pwd_var.get(), del_var, progressbar, log_widget, pwd_var, output_folder), daemon=True
         )
         self._worker_thread.start()
 
-    def _worker_run(self, mode, files, password, del_var, progressbar, log_widget, pwd_var):
+    def _worker_run(self, mode, files, password, del_var, progressbar, log_widget, pwd_var, output_folder):
         success_list, failed_list = [], []
-        total = len(files)
-        output_folder = filedialog.askdirectory(title="Select output folder")
-        if not output_folder:
-            self._log(log_widget, "Operation cancelled: No output folder selected.")
+
+
+        # --- size calculation (safe) ---
+        file_sizes = {f: os.path.getsize(f) for f in files if os.path.exists(f)}
+        total_bytes = sum(file_sizes.values())
+        processed_bytes = 0
+
+        if total_bytes == 0:
+            self._ui(lambda: messagebox.showinfo("No valid files", "Selected files do not exist."))
             return
-        for idx, fpath in enumerate(files, start=1):
+
+        for fpath in files:
             fname = Path(fpath).name
+            fsize = file_sizes.get(fpath, 0)
+
             try:
+                validate_file_size(fpath)
                 # -------- ENCRYPT --------
                 if mode == "encrypt":
                     out = os.path.join(output_folder, fname + ".enc")
-                    encrypt_file(fpath, out, password)
 
-                    # ✅ DELETE ORIGINAL AFTER ENCRYPT
-                    if del_var.get() and os.path.exists(fpath):
-                        os.remove(fpath)
+                    if os.path.exists(out) and not confirm_overwrite(out):
+                        self._ui(lambda: self._log(log_widget, f"Skipped: {fname}"))
+                        continue
+
+                    try:
+                        encrypt_file(fpath, out, password)
+                    except Exception as e:
+                        raise RuntimeError(str(e))
+
+
+                    # cleanup (non-fatal)
+                    if del_var.get():
+                        try:
+                            if os.path.exists(fpath):
+                                secure_delete(fpath)
+                        except Exception as e:
+                            self._ui(lambda: self._log(log_widget, f"Warning: could not delete {fname}: {e}"))
 
                 # -------- DECRYPT --------
                 else:
                     base = fname[:-4] if fname.endswith(".enc") else fname
                     out = os.path.join(output_folder, base)
-                    decrypt_file(fpath, out, password)
 
-                    # ✅ DELETE .ENC AFTER DECRYPT
-                    if del_var.get() and fpath.endswith(".enc") and os.path.exists(fpath):
-                        os.remove(fpath)
+                    if os.path.exists(out) and not confirm_overwrite(out):
+                        self._ui(lambda: self._log(log_widget, f"Skipped: {fname}"))
+                        continue
+
+                    try:
+                        decrypt_file(fpath, out, password)
+                    except Exception as e:
+                        raise RuntimeError(str(e))
+
+
+                    # cleanup (non-fatal)
+                    if del_var.get() and fpath.endswith(".enc"):
+                        try:
+                            if os.path.exists(fpath):
+                                secure_delete(fpath)
+                        except Exception as e:
+                            self._ui(lambda: self._log(log_widget, f"Warning: could not delete {fname}: {e}"))
 
                 success_list.append((fname, out))
-                self._log(log_widget, f"[{idx}/{total}] Success: {fname}")
+                self._ui(lambda: self._log(log_widget, f"Success: {fname}"))
+
             except Exception as e:
                 failed_list.append((fname, str(e)))
-                self._log(log_widget, f"[{idx}/{total}] Failed: {fname} ({e})")
-            progressbar.set(idx/total)
+                self._ui(lambda msg=f"Failed: {fname} ({e})":self._log(log_widget, msg))
+
+            # progress update (SAFE)
+            finally:
+                processed_bytes += fsize
+                self._ui(lambda: progressbar.set(processed_bytes / total_bytes))    
 
         # Clear password box
-        pwd_var.set("")
+        self._ui(lambda: pwd_var.set(""))
 
         # Summary popup
-        msg = [f"Total files: {total}", f"Success: {len(success_list)}", f"Failed: {len(failed_list)}"]
+        total_mb = total_bytes / (1024 * 1024)
+        processed_mb = processed_bytes / (1024 * 1024)
+        output_bytes = 0
+        for _, out in success_list:
+            if os.path.exists(out):
+                output_bytes += os.path.getsize(out)
+
+        output_mb = output_bytes / (1024 * 1024)
+
+        msg = [
+            f"Total files selected: {len(files)}",
+            f"Total size: {total_mb:.2f} MB",
+            f"Processed size: {processed_mb:.2f} MB",
+            f"Output size: {output_mb:.2f} MB",
+            f"Success: {len(success_list)}",
+            f"Failed: {len(failed_list)}",
+        ]
+
         if success_list:
             msg.append("\nSuccessful outputs:")
             for n, o in success_list[:10]:
@@ -178,7 +240,7 @@ class SecureAESApp(ctk.CTk):
             msg.append("\nFailed files:")
             for n, e in failed_list:
                 msg.append(f" - {n}: {e}")
-        messagebox.showinfo("Batch Operation Summary", "\n".join(msg))
+        self._ui(lambda: messagebox.showinfo("Batch Operation Summary", "\n".join(msg)))
 
     # ---- log ----
     def _log(self, log_widget, text):
@@ -186,5 +248,7 @@ class SecureAESApp(ctk.CTk):
         log_widget.insert("end", text+"\n")
         log_widget.see("end")
         log_widget.configure(state="disabled")
-    
+
+    def _ui(self, func):
+        self.after(0, func)
 
